@@ -1304,6 +1304,7 @@ extension Defaults.Keys {
     // MARK: Ruflo Swarm Feature
     static let enableRufloFeature = Key<Bool>("enableRufloFeature", default: true)
     static let showRufloIcon = Key<Bool>("showRufloIcon", default: true)
+    static let showRufloInMenuBar = Key<Bool>("showRufloInMenuBar", default: true)
 
     // MARK: Terminal Feature
     static let enableTerminalFeature = Key<Bool>("enableTerminalFeature", default: false)

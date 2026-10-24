@@ -115,7 +115,7 @@ struct DynamicIslandHeader: View {
             // than as separate ones; 8 is the gap Apple leaves between controls
             // of this size.
             HStack(spacing: 8) {
-                if vm.notchState == .open && !enableMinimalisticUI {
+                if vm.notchState == .open {
                     if Defaults[.enableRufloFeature] && Defaults[.showRufloIcon] {
                         Button(action: {
                             AppDelegate.shared?.cancelPendingNotchAutoClose()
@@ -136,7 +136,9 @@ struct DynamicIslandHeader: View {
                         .buttonStyle(PlainButtonStyle())
                         .help("Ruflo Swarm Monitor")
                     }
+                }
 
+                if vm.notchState == .open && !enableMinimalisticUI {
                     if Defaults[.showMirror] {
                         Button(action: {
                             vm.toggleCameraPreview()

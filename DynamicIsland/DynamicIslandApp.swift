@@ -28,6 +28,8 @@ import SkyLightWindow
 struct DynamicNotchApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @Default(.menubarIcon) var showMenuBarIcon
+    @Default(.showRufloInMenuBar) var showRufloInMenuBar
+    @ObservedObject var rufloManager = RufloManager.shared
     @Environment(\.openWindow) var openWindow
 
     let updaterController: SPUStandardUpdaterController
@@ -54,6 +56,12 @@ struct DynamicNotchApp: App {
             }
             CheckForUpdatesView(updater: updaterController.updater)
             Divider()
+            if Defaults[.enableRufloFeature] {
+                Button("⚡ Ruflo Swarm: \(rufloManager.telemetry.isDaemonRunning ? "Active (\(rufloManager.telemetry.activeWorkersCount) workers)" : "Offline")") {
+                    AppDelegate.shared?.openRufloInNotch()
+                }
+                Divider()
+            }
             Button("Restart Atoll") {
                 guard let bundleIdentifier = Bundle.main.bundleIdentifier else { return }
 
@@ -74,6 +82,18 @@ struct DynamicNotchApp: App {
                 NSApplication.shared.terminate(self)
             }
             .keyboardShortcut(KeyEquivalent("Q"), modifiers: .command)
+        }
+
+        MenuBarExtra(isInserted: $showRufloInMenuBar) {
+            RufloMenuBarMenu()
+        } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "point.3.connected.trianglepath.dotted")
+                if rufloManager.telemetry.activeWorkersCount > 0 {
+                    Text("\(rufloManager.telemetry.activeWorkersCount)")
+                        .font(.system(size: 11, weight: .bold))
+                }
+            }
         }
     }
 
@@ -1417,6 +1437,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func cancelPendingNotchAutoClose() {
         closeNotchWorkItem?.cancel()
         closeNotchWorkItem = nil
+    }
+
+    func openRufloInNotch() {
+        cancelPendingNotchAutoClose()
+        withAnimation(.smooth) {
+            coordinator.currentView = .ruflo
+        }
+        vm.open()
     }
 
     private func registerOptionalShortcutHandlers() {

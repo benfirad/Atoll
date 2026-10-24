@@ -164,4 +164,13 @@ public final class RufloManager: ObservableObject {
             try? process.run()
         }
     }
+
+    public func terminateAllWorkers() {
+        Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/Users/kai/.local/bin/ruflo")
+            process.arguments = ["agent", "terminate", "--all"]
+            try? process.run()
+        }
+    }
 }
