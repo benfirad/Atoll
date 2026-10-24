@@ -74,7 +74,15 @@ final class CoreBrightnessDisplayClient {
             return
         }
         clientInstance = cls.init()
-        available = clientInstance != nil
+        if let inst = clientInstance,
+           methodIMP(on: inst, selector: getSelector, as: BrightnessGetter.self) != nil,
+           methodIMP(on: inst, selector: setSelector, as: BrightnessSetter.self) != nil {
+            available = true
+            NSLog("✅ CoreBrightnessDisplayClient: Class '%@' initialized with active selectors", String(describing: cls))
+        } else {
+            available = false
+            NSLog("ℹ️ CoreBrightnessDisplayClient: Class '%@' does not respond to expected selectors; disabled (DisplayServices will be used)", String(describing: cls))
+        }
     }
 
     var isAvailable: Bool { available }
