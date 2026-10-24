@@ -116,6 +116,27 @@ struct DynamicIslandHeader: View {
             // of this size.
             HStack(spacing: 8) {
                 if vm.notchState == .open && !enableMinimalisticUI {
+                    if Defaults[.enableRufloFeature] && Defaults[.showRufloIcon] {
+                        Button(action: {
+                            AppDelegate.shared?.cancelPendingNotchAutoClose()
+                            withAnimation(.smooth) {
+                                coordinator.currentView = (coordinator.currentView == .ruflo) ? .home : .ruflo
+                            }
+                        }) {
+                            Capsule()
+                                .fill(coordinator.currentView == .ruflo ? Color.cyan.opacity(0.3) : Color.black)
+                                .frame(width: 30, height: 30)
+                                .overlay {
+                                    headerGlyph(
+                                        "point.3.connected.trianglepath.dotted",
+                                        color: coordinator.currentView == .ruflo ? .cyan : .white
+                                    )
+                                }
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .help("Ruflo Swarm Monitor")
+                    }
+
                     if Defaults[.showMirror] {
                         Button(action: {
                             vm.toggleCameraPreview()

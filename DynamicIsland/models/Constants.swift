@@ -1297,6 +1297,10 @@ extension Defaults.Keys {
     static let showDiskGraph = Key<Bool>("showDiskGraph", default: false)
     static let cpuTemperatureUnit = Key<LockScreenWeatherTemperatureUnit>("cpuTemperatureUnit", default: .matchingSystemPreference)
     
+    // MARK: Ruflo Swarm Feature
+    static let enableRufloFeature = Key<Bool>("enableRufloFeature", default: true)
+    static let showRufloIcon = Key<Bool>("showRufloIcon", default: true)
+
     // MARK: Terminal Feature
     static let enableTerminalFeature = Key<Bool>("enableTerminalFeature", default: false)
     static let terminalShellPath = Key<String>("terminalShellPath", default: "/bin/zsh")

@@ -1310,6 +1310,8 @@ struct ContentView: View {
                                 } else {
                                     NotchHomeView(albumArtNamespace: albumArtNamespace)
                                 }
+                            case .ruflo:
+                                NotchRufloView()
                           }
                       }
                       .id(coordinator.currentView)
