@@ -49,7 +49,8 @@ class FilteredNowPlayingController: ObservableObject, MediaControllerProtocol {
     private var process: Process?
     private var pipeHandler: JSONLinesPipeHandler?
     private var streamTask: Task<Void, Never>?
-    private let targetBundleIdentifier: String
+    private let targetBundleIdentifiers: Set<String>
+    var targetBundleIdentifier: String { targetBundleIdentifiers.first ?? "" }
     private let controllerName: String
 
     /// True only after a stream line explicitly identified the selected app as the now playing source.
@@ -60,9 +61,42 @@ class FilteredNowPlayingController: ObservableObject, MediaControllerProtocol {
     private var competingSessionSource: String?
 
     init?(bundleIdentifier: String, controllerName: String) {
-        self.targetBundleIdentifier = bundleIdentifier
+        self.targetBundleIdentifiers = [bundleIdentifier]
         self.controllerName = controllerName
         self.playbackState = Self.makeIdlePlaybackState(bundleIdentifier: bundleIdentifier)
+
+        guard
+            let bundle = CFBundleCreate(
+                kCFAllocatorDefault,
+                NSURL(fileURLWithPath: "/System/Library/PrivateFrameworks/MediaRemote.framework")),
+            let MRMediaRemoteSendCommandPointer = CFBundleGetFunctionPointerForName(
+                bundle, "MRMediaRemoteSendCommand" as CFString),
+            let MRMediaRemoteSetElapsedTimePointer = CFBundleGetFunctionPointerForName(
+                bundle, "MRMediaRemoteSetElapsedTime" as CFString),
+            let MRMediaRemoteSetShuffleModePointer = CFBundleGetFunctionPointerForName(
+                bundle, "MRMediaRemoteSetShuffleMode" as CFString),
+            let MRMediaRemoteSetRepeatModePointer = CFBundleGetFunctionPointerForName(
+                bundle, "MRMediaRemoteSetRepeatMode" as CFString)
+        else { return nil }
+
+        self.mediaRemoteBundle = bundle
+        MRMediaRemoteSendCommandFunction = unsafeBitCast(
+            MRMediaRemoteSendCommandPointer, to: (@convention(c) (Int, AnyObject?) -> Void).self)
+        MRMediaRemoteSetElapsedTimeFunction = unsafeBitCast(
+            MRMediaRemoteSetElapsedTimePointer, to: (@convention(c) (Double) -> Void).self)
+        MRMediaRemoteSetShuffleModeFunction = unsafeBitCast(
+            MRMediaRemoteSetShuffleModePointer, to: (@convention(c) (Int) -> Void).self)
+        MRMediaRemoteSetRepeatModeFunction = unsafeBitCast(
+            MRMediaRemoteSetRepeatModePointer, to: (@convention(c) (Int) -> Void).self)
+
+        Task { await setupNowPlayingObserver() }
+    }
+
+    init?(bundleIdentifiers: Set<String>, controllerName: String) {
+        self.targetBundleIdentifiers = bundleIdentifiers
+        self.controllerName = controllerName
+        let primaryIdentifier = bundleIdentifiers.first ?? ""
+        self.playbackState = Self.makeIdlePlaybackState(bundleIdentifier: primaryIdentifier)
 
         guard
             let bundle = CFBundleCreate(
@@ -136,7 +170,8 @@ class FilteredNowPlayingController: ObservableObject, MediaControllerProtocol {
     }
 
     func isActive() -> Bool {
-        NSWorkspace.shared.runningApplications.contains { $0.bundleIdentifier == targetBundleIdentifier }
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap { $0.bundleIdentifier })
+        return !targetBundleIdentifiers.isDisjoint(with: running)
     }
 
     // MARK: - Favouriting
@@ -279,7 +314,7 @@ class FilteredNowPlayingController: ObservableObject, MediaControllerProtocol {
         }()
 
         if let source = explicitSource {
-            if source != targetBundleIdentifier {
+            if !targetBundleIdentifiers.contains(source) {
                 if shouldPreservePlaybackState(whenCompetingWith: source) {
                     competingSessionActive = true
                     competingSessionSource = source
@@ -308,7 +343,8 @@ class FilteredNowPlayingController: ObservableObject, MediaControllerProtocol {
             return
         }
 
-        var newPlaybackState = PlaybackState(bundleIdentifier: targetBundleIdentifier)
+        let assignedBundleIdentifier = explicitSource ?? targetBundleIdentifier
+        var newPlaybackState = PlaybackState(bundleIdentifier: assignedBundleIdentifier)
 
         newPlaybackState.title = payload.title ?? (diff ? self.playbackState.title : "")
         newPlaybackState.artist = payload.artist ?? (diff ? self.playbackState.artist : "")
@@ -350,7 +386,7 @@ class FilteredNowPlayingController: ObservableObject, MediaControllerProtocol {
 
         newPlaybackState.playbackRate = payload.playbackRate ?? (diff ? self.playbackState.playbackRate : 1.0)
         newPlaybackState.isPlaying = payload.playing ?? (diff ? self.playbackState.isPlaying : false)
-        newPlaybackState.bundleIdentifier = targetBundleIdentifier
+        newPlaybackState.bundleIdentifier = assignedBundleIdentifier
 
         self.playbackState = newPlaybackState
     }

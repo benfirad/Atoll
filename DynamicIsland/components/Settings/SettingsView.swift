@@ -1770,7 +1770,7 @@ struct Downloads: View {
             } header: {
                 Text("Download Detection")
             } footer: {
-                Text("Shows a live activity in the Dynamic Island while a file is downloading. Works with Safari, Firefox, and Chrome and the browsers built on it — Edge, Brave, Arc, Vivaldi and Opera. Only your Downloads folder is watched, so a file saved anywhere else will not appear.")
+                Text("Shows a live activity in the Dynamic Island while a file is downloading. Works with Safari, Firefox, Zen, Chrome and the browsers built on it — Edge, Brave, Arc, Vivaldi and Opera. Only your Downloads folder is watched, so a file saved anywhere else will not appear.")
             }
         }
         .navigationTitle("Downloads")
@@ -3113,6 +3113,10 @@ private extension MediaControllerType {
         switch self {
         case .nowPlaying:
             return []
+        case .arc:
+            return ["company.thebrowser.Browser", "company.thebrowser.Arc"]
+        case .zen:
+            return ["app.zen-browser.zen", "org.mozilla.zen"]
         case .appleMusic:
             return ["com.apple.Music"]
         case .spotify:
@@ -3131,6 +3135,8 @@ private extension MediaControllerType {
     var fallbackSymbol: String {
         switch self {
         case .nowPlaying: return "waveform"
+        case .arc: return "globe"
+        case .zen: return "circle.hexagongrid.fill"
         case .appleMusic: return "music.note"
         case .spotify: return "dot.radiowaves.left.and.right"
         case .youtubeMusic: return "play.rectangle.fill"
@@ -3143,6 +3149,8 @@ private extension MediaControllerType {
     var fallbackColor: Color {
         switch self {
         case .nowPlaying: return .accentColor
+        case .arc: return Color(red: 1.0, green: 0.39, blue: 0.28)
+        case .zen: return Color(red: 0.60, green: 0.45, blue: 0.88)
         case .appleMusic: return .pink
         case .spotify: return .green
         case .youtubeMusic: return .red
@@ -3239,7 +3247,7 @@ struct Media: View {
                 } else {
                     VStack(alignment: .leading, spacing: 6) {
                         Text(String(localized: "'Now Playing' was the only option on previous versions and works with all media apps."))
-                        if mediaController == .amazonMusic || mediaController == .tidal || mediaController == .cider {
+                        if mediaController == .amazonMusic || mediaController == .tidal || mediaController == .cider || mediaController == .arc || mediaController == .zen {
                             Text(mediaController.description)
                         }
                     }

@@ -840,12 +840,22 @@ class MusicManager: ObservableObject {
             } else {
                 return nil
             }
+        case .arc:
+            newController = ArcBrowserController()
+        case .zen:
+            newController = ZenBrowserController()
         case .appleMusic:
             newController = AppleMusicController()
         case .spotify:
             newController = SpotifyController()
         case .youtubeMusic:
-            newController = YouTubeMusicController()
+            if NSWorkspace.shared.runningApplications.contains(where: { $0.bundleIdentifier == YouTubeMusicConfiguration.default.bundleIdentifier }) {
+                newController = YouTubeMusicController()
+            } else if !self.isNowPlayingDeprecated {
+                newController = NowPlayingController()
+            } else {
+                newController = YouTubeMusicController()
+            }
         case .amazonMusic:
             newController = AmazonMusicController()
         case .tidal:
@@ -1742,6 +1752,7 @@ class MusicManager: ObservableObject {
         let workspace = NSWorkspace.shared
         if let appURL = workspace.urlForApplication(withBundleIdentifier: bundleID) {
             let configuration = NSWorkspace.OpenConfiguration()
+            configuration.activates = true
             workspace.openApplication(at: appURL, configuration: configuration) { (_, error) in
                 if let error = error {
                     print("Failed to launch app with bundle ID: \(bundleID), error: \(error)")
@@ -2271,14 +2282,16 @@ extension MusicManager {
             return amazonOrange
         case .tidal, .cider:
             return .accentColor
-        case .nowPlaying:
+        case .arc:
+            return arcCoral
+        case .zen:
+            return zenPurple
+        case .nowPlaying, .youtubeMusic:
             if let bundleIdentifier,
                let bundleColor = brandAccentColor(forBundleIdentifier: bundleIdentifier) {
                 return bundleColor
             }
-            fallthrough
-        case .youtubeMusic:
-            return .accentColor
+            return (controller == .youtubeMusic) ? youtubeRed : .accentColor
         }
     }
 
@@ -2294,11 +2307,20 @@ extension MusicManager {
             return .accentColor
         case CiderController.bundleIdentifier:
             return .accentColor
+        case "company.thebrowser.Browser", "company.thebrowser.Arc":
+            return arcCoral
+        case "app.zen-browser.zen", "org.mozilla.zen":
+            return zenPurple
+        case "com.google.Chrome":
+            return Color(red: 0.26, green: 0.52, blue: 0.96)
         default:
             return nil
         }
     }
 
+    private static let arcCoral = Color(red: 1.0, green: 0.39, blue: 0.28)
+    private static let zenPurple = Color(red: 0.60, green: 0.45, blue: 0.88)
+    private static let youtubeRed = Color(red: 1.0, green: 0.0, blue: 0.0)
     private static let appleMusicPink = Color(red: 0.999, green: 0.171, blue: 0.331)
     private static let spotifyGreen = Color(red: 0.0, green: 0.857, blue: 0.302)
     private static let amazonOrange = Color(red: 1.0, green: 0.6, blue: 0.0)

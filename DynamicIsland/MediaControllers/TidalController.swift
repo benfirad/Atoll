@@ -39,6 +39,8 @@ final class TidalController: FilteredNowPlayingController {
         "com.duckduckgo.macos.browser",
         "com.kagi.kagimacOS",
         "company.thebrowser.Arc",
+        "app.zen-browser.zen",
+        "org.mozilla.zen",
     ]
 
     init?() {

@@ -63,6 +63,14 @@ enum MediaSourceCapabilities {
             return .init(name: String(localized: "Now Playing"),
                          favoriting: .full, shuffle: .full, repeatMode: .full,
                          note: String(localized: "Follows whichever app is playing, so it can do whatever that app can."))
+        case .arc:
+            return .init(name: String(localized: "Arc Browser"),
+                         favoriting: .none, shuffle: .full, repeatMode: .full,
+                         note: String(localized: "Captures media playing in Arc Browser tabs via macOS Media Remote."))
+        case .zen:
+            return .init(name: String(localized: "Zen Browser"),
+                         favoriting: .none, shuffle: .full, repeatMode: .full,
+                         note: String(localized: "Captures media playing in Zen Browser tabs via macOS Media Remote."))
         case .appleMusic:
             return .init(name: String(localized: "Apple Music"),
                          favoriting: .full, shuffle: .full, repeatMode: .full,

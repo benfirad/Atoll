@@ -137,6 +137,10 @@ extension MediaControllerType {
         switch self {
         case .nowPlaying:
             return String(localized: "Works with most media apps, including browsers, to detect what's playing. Note: This may be removed in a future macOS version.")
+        case .arc:
+            return String(localized: "Connects to Arc Browser to control audio and music playing in tabs.")
+        case .zen:
+            return String(localized: "Connects to Zen Browser to control audio and music playing in tabs.")
         case .spotify:
             return String(localized: "Connects directly to the Spotify app.")
         case .appleMusic:
