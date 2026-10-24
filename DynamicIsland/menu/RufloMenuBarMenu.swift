@@ -28,6 +28,16 @@ public struct RufloMenuBarMenu: View {
 
             Divider()
 
+            if manager.telemetry.isDaemonRunning {
+                Button("⏹️ Swarm Daemon'u Durdur") {
+                    manager.stopDaemon()
+                }
+            } else {
+                Button("▶️ Swarm Daemon'u Başlat") {
+                    manager.startDaemon()
+                }
+            }
+
             Button("🎯 Çentikte Aç (Dynamic Island)") {
                 openRufloInNotch()
             }

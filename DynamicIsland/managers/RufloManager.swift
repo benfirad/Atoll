@@ -42,6 +42,8 @@ public final class RufloManager: ObservableObject {
     @Published public var isRefreshing: Bool = false
 
     private var refreshTimer: Timer?
+    private let workspacePath = "/Users/kai/Documents/antigravity/ruflo"
+    private let daemonPidURL = URL(fileURLWithPath: "/Users/kai/Documents/antigravity/ruflo/.claude-flow/daemon.pid")
     private let daemonStateURL = URL(fileURLWithPath: "/Users/kai/Documents/antigravity/ruflo/.claude-flow/daemon-state.json")
     private let memoryDBURL = URL(fileURLWithPath: "/Users/kai/Documents/antigravity/ruflo/.swarm/memory.db")
 
@@ -52,7 +54,7 @@ public final class RufloManager: ObservableObject {
     public func startPolling() {
         refreshTimer?.invalidate()
         refresh()
-        refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.5, repeats: true) { [weak self] _ in
+        refreshTimer = Timer.scheduledTimer(withTimeInterval: 2.0, repeats: true) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.refresh()
             }
@@ -65,20 +67,28 @@ public final class RufloManager: ObservableObject {
     }
 
     public func refresh() {
-        guard FileManager.default.fileExists(atPath: daemonStateURL.path) else {
-            telemetry.isDaemonRunning = false
-            telemetry.uptimeString = "Offline"
-            return
+        var running = false
+
+        if FileManager.default.fileExists(atPath: daemonPidURL.path),
+           let pidStr = try? String(contentsOf: daemonPidURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+           let pid = Int32(pidStr), pid > 0 {
+            if kill(pid, 0) == 0 {
+                running = true
+            }
         }
 
-        do {
-            let data = try Data(contentsOf: daemonStateURL)
-            guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        var workersList: [RufloWorkerState] = []
+        var activeCount = 0
+        var totalRunsCount = 0
+        var startDate: Date? = nil
 
-            let running = json["running"] as? Bool ?? false
-            var workersList: [RufloWorkerState] = []
-            var activeCount = 0
-            var totalRunsCount = 0
+        if FileManager.default.fileExists(atPath: daemonStateURL.path),
+           let data = try? Data(contentsOf: daemonStateURL),
+           let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+
+            if !running {
+                running = json["running"] as? Bool ?? false
+            }
 
             let configDict = json["config"] as? [String: Any] ?? [:]
             let configWorkers = configDict["workers"] as? [[String: Any]] ?? []
@@ -124,53 +134,86 @@ public final class RufloManager: ObservableObject {
 
             let isoFormatter = ISO8601DateFormatter()
             isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            var startDate: Date? = nil
             if let startedStr = json["startedAt"] as? String {
                 startDate = isoFormatter.date(from: startedStr)
             }
-
-            let uptimeStr: String
-            if running, let start = startDate {
-                let interval = Int(Date().timeIntervalSince(start))
-                let hours = interval / 3600
-                let minutes = (interval % 3600) / 60
-                uptimeStr = hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
-            } else if running {
-                uptimeStr = "Active"
-            } else {
-                uptimeStr = "Stopped"
-            }
-
-            var updated = RufloTelemetry()
-            updated.isDaemonRunning = running
-            updated.startedAt = startDate
-            updated.uptimeString = uptimeStr
-            updated.activeWorkersCount = activeCount
-            updated.totalRuns = totalRunsCount
-            updated.workers = workersList
-            updated.lastUpdate = Date()
-
-            self.telemetry = updated
-        } catch {
-            print("RufloManager: Error reading daemon state: \(error)")
         }
+
+        let uptimeStr: String
+        if running, let start = startDate {
+            let interval = Int(Date().timeIntervalSince(start))
+            let hours = interval / 3600
+            let minutes = (interval % 3600) / 60
+            uptimeStr = hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
+        } else if running {
+            uptimeStr = "Active"
+        } else {
+            uptimeStr = "Offline"
+        }
+
+        var memoryCount = 0
+        if FileManager.default.fileExists(atPath: memoryDBURL.path) {
+            if let attrs = try? FileManager.default.attributesOfItem(atPath: memoryDBURL.path),
+               let size = attrs[.size] as? Int64 {
+                memoryCount = max(1, Int(size / 4096))
+            }
+        }
+
+        var updated = RufloTelemetry()
+        updated.isDaemonRunning = running
+        updated.startedAt = startDate
+        updated.uptimeString = uptimeStr
+        updated.activeWorkersCount = activeCount
+        updated.totalRuns = totalRunsCount
+        updated.workers = workersList
+        updated.memoryEntriesCount = memoryCount
+        updated.lastUpdate = Date()
+
+        self.telemetry = updated
+    }
+
+    private func runRuflo(arguments: [String]) {
+        Task.detached(priority: .userInitiated) {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/Users/kai/.local/bin/ruflo")
+            process.arguments = arguments
+            process.currentDirectoryURL = URL(fileURLWithPath: self.workspacePath)
+
+            var env = ProcessInfo.processInfo.environment
+            let extraPaths = [
+                "/Users/kai/.local/bin",
+                "/Users/kai/.local/share/DAAK/Hermes/node/bin",
+                "/opt/homebrew/bin",
+                "/opt/homebrew/sbin",
+                "/usr/local/bin"
+            ]
+            let currentPath = env["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+            env["PATH"] = extraPaths.joined(separator: ":") + ":" + currentPath
+            process.environment = env
+
+            try? process.run()
+            process.waitUntilExit()
+
+            try? await Task.sleep(nanoseconds: 500_000_000)
+            await MainActor.run {
+                RufloManager.shared.refresh()
+            }
+        }
+    }
+
+    public func startDaemon() {
+        runRuflo(arguments: ["daemon", "start", "--workspace", workspacePath])
+    }
+
+    public func stopDaemon() {
+        runRuflo(arguments: ["daemon", "stop", "--workspace", workspacePath])
     }
 
     public func triggerWorker(type: String) {
-        Task.detached(priority: .userInitiated) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/Users/kai/.local/bin/ruflo")
-            process.arguments = ["worker-dispatch", "--type", type]
-            try? process.run()
-        }
+        runRuflo(arguments: ["daemon", "trigger", "-w", type])
     }
 
     public func terminateAllWorkers() {
-        Task.detached(priority: .userInitiated) {
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/Users/kai/.local/bin/ruflo")
-            process.arguments = ["agent", "terminate", "--all"]
-            try? process.run()
-        }
+        runRuflo(arguments: ["agent", "terminate", "--all"])
     }
 }

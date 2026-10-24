@@ -95,6 +95,9 @@ struct TabSelectionView: View {
         if Defaults[.enableTerminalFeature] {
             tabsArray.append(TabModel(label: "Terminal", icon: "apple.terminal", view: .terminal))
         }
+        if Defaults[.enableRufloFeature] {
+            tabsArray.append(TabModel(label: "Ruflo", icon: "point.3.connected.trianglepath.dotted", view: .ruflo, accentColor: .cyan))
+        }
         if extensionTabsEnabled {
             for payload in extensionTabPayloads {
                 guard let tab = payload.descriptor.tab else { continue }

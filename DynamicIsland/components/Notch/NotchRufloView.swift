@@ -28,20 +28,43 @@ struct NotchRufloView: View {
 
                 Spacer()
 
-                // Status Badge
-                HStack(spacing: 5) {
-                    Circle()
-                        .fill(manager.telemetry.isDaemonRunning ? Color.green : Color.red)
-                        .frame(width: 7, height: 7)
+                // Status Badge & Daemon Control
+                HStack(spacing: 8) {
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(manager.telemetry.isDaemonRunning ? Color.green : Color.red)
+                            .frame(width: 7, height: 7)
 
-                    Text(manager.telemetry.isDaemonRunning ? "DAEMON ACTIVE" : "OFFLINE")
-                        .font(.system(size: 10, weight: .semibold, design: .monospaced))
-                        .foregroundColor(manager.telemetry.isDaemonRunning ? .green : .red)
+                        Text(manager.telemetry.isDaemonRunning ? "ACTIVE" : "OFFLINE")
+                            .font(.system(size: 10, weight: .semibold, design: .monospaced))
+                            .foregroundColor(manager.telemetry.isDaemonRunning ? .green : .red)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Color.white.opacity(0.08))
+                    .clipShape(Capsule())
+
+                    Button(action: {
+                        if manager.telemetry.isDaemonRunning {
+                            manager.stopDaemon()
+                        } else {
+                            manager.startDaemon()
+                        }
+                    }) {
+                        HStack(spacing: 4) {
+                            Image(systemName: manager.telemetry.isDaemonRunning ? "stop.fill" : "play.fill")
+                                .font(.system(size: 9))
+                            Text(manager.telemetry.isDaemonRunning ? "Durdur" : "Başlat")
+                                .font(.system(size: 10, weight: .medium))
+                        }
+                        .foregroundColor(manager.telemetry.isDaemonRunning ? .red.opacity(0.9) : .green.opacity(0.9))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(Color.white.opacity(0.08))
+                        .clipShape(Capsule())
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 3)
-                .background(Color.white.opacity(0.08))
-                .clipShape(Capsule())
 
                 // Uptime
                 Text(manager.telemetry.uptimeString)
