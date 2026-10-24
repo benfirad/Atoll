@@ -274,6 +274,27 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         ]
     }
 
+    private var signalSources: [DispatchSourceSignal] = []
+
+    private func setupTerminationSignalHandlers() {
+        signal(SIGTERM, SIG_IGN)
+        signal(SIGINT, SIG_IGN)
+
+        let termSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        termSource.setEventHandler {
+            NSApp.terminate(nil)
+        }
+        termSource.resume()
+
+        let intSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        intSource.setEventHandler {
+            NSApp.terminate(nil)
+        }
+        intSource.resume()
+
+        signalSources = [termSource, intSource]
+    }
+
     /// Removes the AudioTap observers registered by `setupAudioTapMusicObservers()`.
     private func tearDownAudioTapMusicObservers() {
         for (center, token) in audioTapObserverTokens {
@@ -750,6 +771,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         
         // Setup SystemHUD Manager
         SystemHUDManager.shared.setup(coordinator: coordinator)
+        setupTerminationSignalHandlers()
 
         // Setup BetterDisplay integration
         BetterDisplayManager.shared.configure(coordinator: coordinator)

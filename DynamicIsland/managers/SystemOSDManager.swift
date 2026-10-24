@@ -100,73 +100,48 @@ class SystemOSDManager {
         }
     }
     
+    @discardableResult
+    private static func runCommandSync(_ executable: String, _ args: [String]) -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: executable)
+        process.arguments = args
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            process.waitUntilExit()
+            return process.terminationStatus
+        } catch {
+            return -1
+        }
+    }
+
+    private static func disableLaunchdOSDUIHelper() {
+        let uid = getuid()
+        runCommandSync("/bin/launchctl", ["disable", "gui/\(uid)/com.apple.OSDUIHelper"])
+        runCommandSync("/usr/bin/killall", ["-9", "OSDUIHelper"])
+    }
+
+    private static func enableLaunchdOSDUIHelper() {
+        let uid = getuid()
+        runCommandSync("/bin/launchctl", ["enable", "gui/\(uid)/com.apple.OSDUIHelper"])
+        runCommandSync("/bin/launchctl", ["kickstart", "-k", "gui/\(uid)/com.apple.OSDUIHelper"])
+    }
+
     private static func enableSystemHUDAsync(generation: UInt64) async {
         guard isCurrentTransition(generation, active: false) else { return }
 
-        do {
-            // First, stop any existing OSDUIHelper process
-            let stopTask = Process()
-            stopTask.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
-            stopTask.arguments = ["-9", "OSDUIHelper"]
-            stopTask.standardError = Pipe() // silence "no such process" stderr
-            try stopTask.run()
-            stopTask.waitUntilExit()
+        enableLaunchdOSDUIHelper()
+        resumeOSDUIHelperProcess()
 
-            guard isCurrentTransition(generation, active: false) else { return }
-            
-            // Small delay to ensure process is fully stopped
-            try await Task.sleep(nanoseconds: 200_000_000) // 200ms
-            guard isCurrentTransition(generation, active: false) else { return }
-            
-            // Then kickstart it again to ensure it's running properly
-            let kickstart = Process()
-            kickstart.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            kickstart.arguments = ["kickstart", "gui/\(getuid())/com.apple.OSDUIHelper"]
-            try kickstart.run()
-            kickstart.waitUntilExit()
+        try? await Task.sleep(nanoseconds: 200_000_000) // 200ms
+        guard isCurrentTransition(generation, active: false) else {
+            suppressNativeOSDNow()
+            return
+        }
 
-            // A replacement HUD may have been selected while launchctl was
-            // running. In that case the current suppression transition owns the
-            // helper; stop this stale restoration immediately.
-            guard isCurrentTransition(generation, active: false) else {
-                suppressNativeOSDNow()
-                return
-            }
-            
-            // Additional delay to ensure service is fully started
-            try await Task.sleep(nanoseconds: 300_000_000) // 300ms
-            guard isCurrentTransition(generation, active: false) else { return }
-            
-            await MainActor.run {
-                print("✅ System HUD re-enabled")
-            }
-        } catch {
-            guard isCurrentTransition(generation, active: false) else { return }
-            await MainActor.run {
-                NSLog("❌ Error while trying to re-enable OSDUIHelper: \(error)")
-            }
-            
-            // Fallback: Try to restart the service using launchctl load
-            do {
-                let fallbackTask = Process()
-                fallbackTask.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-                fallbackTask.arguments = ["load", "-w", "/System/Library/LaunchAgents/com.apple.OSDUIHelper.plist"]
-                try fallbackTask.run()
-                fallbackTask.waitUntilExit()
-
-                guard isCurrentTransition(generation, active: false) else {
-                    suppressNativeOSDNow()
-                    return
-                }
-                
-                await MainActor.run {
-                    print("✅ System HUD re-enabled via fallback method")
-                }
-            } catch {
-                await MainActor.run {
-                    NSLog("❌ Fallback method also failed: \(error)")
-                }
-            }
+        await MainActor.run {
+            print("✅ System HUD re-enabled")
         }
     }
 
@@ -196,16 +171,8 @@ class SystemOSDManager {
             _ = drained.wait(timeout: .now() + 1.0)
         }
 
-        let resume = Process()
-        resume.executableURL = URL(fileURLWithPath: "/usr/bin/killall")
-        resume.arguments = ["-CONT", "OSDUIHelper"]
-        resume.standardError = Pipe() // silence "no such process" stderr
-        do {
-            try resume.run()
-            resume.waitUntilExit()
-        } catch {
-            NSLog("Failed to SIGCONT OSDUIHelper on termination: \(error)")
-        }
+        enableLaunchdOSDUIHelper()
+        resumeOSDUIHelperProcess()
     }
 
     /// Disables the system HUD by stopping OSDUIHelper, and starts a
@@ -225,9 +192,7 @@ class SystemOSDManager {
         startSuppressionWatcher()
     }
 
-    /// Immediately SIGSTOPs OSDUIHelper, bypassing the 150ms watcher poll. The
-    /// CoreAudio volume write wakes/respawns the helper to draw the native OSD
-    /// (brightness's private APIs never do), and the watcher can lose that race.
+    /// Immediately suppresses OSDUIHelper via launchctl disable + SIGSTOP, bypassing the watcher poll.
     /// No-op unless suppression is active.
     public static func suppressNativeOSDNow() {
         let generation = suppressionState.withLock { state -> UInt64? in
@@ -243,17 +208,11 @@ class SystemOSDManager {
             }
 
             guard isCurrentTransition(generation, active: true) else { return }
-            if let pid = osduiHelperPID() {
-                let lastPID = suppressionState.withLock { $0.lastSuspendedPID }
-                if pid == lastPID {
-                    return
-                }
-            }
 
-            guard isCurrentTransition(generation, active: true) else { return }
+            disableLaunchdOSDUIHelper()
             suspendOSDUIHelper()
 
-            // If this transition went stale while the SIGSTOP was in flight,
+            // If this transition went stale while suppression was in flight,
             // hand the helper over rather than assuming it should be resumed.
             guard isCurrentTransition(generation, active: true) else {
                 relinquishStaleSuspension()
@@ -269,97 +228,19 @@ class SystemOSDManager {
     private static func disableSystemHUDAsync(generation: UInt64) async {
         guard isCurrentTransition(generation, active: true) else { return }
 
-        do {
-            // Freeze whatever is already running, first and synchronously.
-            //
-            // The kickstart below carries `-k`, which kills the current helper
-            // and starts a live replacement — and every millisecond between the
-            // two is a window where the native HUD draws. That was tolerable
-            // when suppression ran once at startup, but lock-state changes now
-            // re-run it, so the window reopened on every unlock and the native
-            // HUD reappeared on the home screen. A helper that is already
-            // SIGSTOPped needs no replacing; freezing it in place closes the
-            // window entirely, and the watcher still catches any process macOS
-            // swaps in later.
-            if let existing = osduiHelperPID() {
-                suspendOSDUIHelper()
-                guard isCurrentTransition(generation, active: true) else {
-                    relinquishStaleSuspension()
-                    return
-                }
-                suppressionState.withLock { $0.lastSuspendedPID = existing }
-                await MainActor.run {
-                    print("✅ System HUD disabled (suspended running helper \(existing))")
-                }
-                return
-            }
+        // Disable launchd so OSDUIHelper cannot be spawned on-demand
+        disableLaunchdOSDUIHelper()
+        suspendOSDUIHelper()
 
-            let kickstart = Process()
-            kickstart.executableURL = URL(fileURLWithPath: "/bin/launchctl")
-            // No helper running — ask launchd for one so there is something to
-            // freeze before the next media key arrives.
-            kickstart.arguments = ["kickstart", "gui/\(getuid())/com.apple.OSDUIHelper"]
-            try kickstart.run()
-            kickstart.waitUntilExit()
+        if let existing = osduiHelperPID() {
+            suppressionState.withLock { $0.lastSuspendedPID = existing }
+        }
 
-            guard isCurrentTransition(generation, active: true) else { return }
-
-            // launchctl kickstart returns once the request is queued, not after
-            // OSDUIHelper has actually forked. At cold boot the helper can take
-            // a while to appear — a fixed sleep races and the SIGSTOP misses,
-            // letting the native OSD render on the first volume/brightness key.
-            // Poll for the PID up to ~5s, then suspend, and retry if launchd
-            // respawned a fresh copy between kickstart and SIGSTOP.
-            var attempts = 0
-            while attempts < 3 {
-                guard isCurrentTransition(generation, active: true) else { return }
-                let appeared = await waitForOSDUIHelper(timeoutMillis: 5000)
-                guard isCurrentTransition(generation, active: true) else { return }
-                if !appeared {
-                    await MainActor.run {
-                        NSLog("⚠️ OSDUIHelper did not appear within timeout; retrying SIGSTOP anyway")
-                    }
-                }
-
-                suspendOSDUIHelper()
-
-                // Settle, then confirm a process is actually present (and thus
-                // suspended). If none is running, launchd hasn't spawned it yet
-                // or the prior STOP raced — loop and try again.
-                try await Task.sleep(nanoseconds: 250_000_000) // 250ms
-                guard isCurrentTransition(generation, active: true) else { return }
-                if let pid = osduiHelperPID() {
-                    suppressionState.withLock { $0.lastSuspendedPID = pid }
-                    break
-                }
-                attempts += 1
-            }
-
-            if isCurrentTransition(generation, active: true) {
-                await MainActor.run {
-                    print("✅ System HUD disabled")
-                }
-            }
-        } catch {
-            guard isCurrentTransition(generation, active: true) else { return }
+        if isCurrentTransition(generation, active: true) {
             await MainActor.run {
-                NSLog("❌ Error while trying to hide OSDUIHelper: \(error)")
+                print("✅ System HUD disabled (com.apple.OSDUIHelper disabled in launchctl)")
             }
         }
-    }
-
-    /// Polls for an OSDUIHelper process, returning true as soon as one appears
-    /// or false if `timeoutMillis` elapses with no match.
-    private static func waitForOSDUIHelper(timeoutMillis: Int) async -> Bool {
-        let pollIntervalNanos: UInt64 = 200_000_000 // 200ms
-        let maxAttempts = max(1, timeoutMillis / 200)
-        for _ in 0..<maxAttempts {
-            if isOSDUIHelperRunning() {
-                return true
-            }
-            try? await Task.sleep(nanoseconds: pollIntervalNanos)
-        }
-        return isOSDUIHelperRunning()
     }
 
     private static func isCurrentTransition(_ generation: UInt64, active: Bool) -> Bool {
@@ -395,7 +276,8 @@ class SystemOSDManager {
                 let currentPID = osduiHelperPID()
                 let lastPID = suppressionState.withLock { $0.lastSuspendedPID }
 
-                if let pid = currentPID, pid != lastPID {
+                if let pid = currentPID {
+                    disableLaunchdOSDUIHelper()
                     suspendOSDUIHelper()
                     suppressionState.withLock { $0.lastSuspendedPID = pid }
                     stableChecks = 0

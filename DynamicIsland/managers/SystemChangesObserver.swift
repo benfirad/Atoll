@@ -127,15 +127,15 @@ final class SystemChangesObserver: MediaKeyInterceptorDelegate {
         }
 
         mediaKeyInterceptor.delegate = self
-        let tapStarted = mediaKeyInterceptor.start()
-        if !tapStarted {
-            NSLog("⚠️ Media key interception unavailable; system HUD will remain visible")
-        }
         mediaKeyInterceptor.configuration = MediaKeyConfiguration(
             interceptVolume: volumeEnabled,
             interceptBrightness: brightnessEnabled,
             interceptCommandModifiedBrightness: keyboardBacklightEnabled
         )
+        let tapStarted = mediaKeyInterceptor.start()
+        if !tapStarted {
+            NSLog("⚠️ Media key interception unavailable; system HUD will remain visible")
+        }
     }
 
     func update(volumeEnabled: Bool, brightnessEnabled: Bool, keyboardBacklightEnabled: Bool) {
@@ -318,6 +318,8 @@ final class SystemChangesObserver: MediaKeyInterceptorDelegate {
     private func sendBrightnessNotification(value: Float) {
         guard !SystemHUDPlacement.suppressesAppHUD(isLocked: LockScreenManager.isLockedSnapshot) else { return }
 
+        SystemOSDManager.suppressNativeOSDNow()
+
         // Send to Circular HUD if enabled
         if Defaults[.enableCircularHUD] && Defaults[.enableBrightnessHUD] {
             Task { @MainActor in
@@ -357,6 +359,8 @@ final class SystemChangesObserver: MediaKeyInterceptorDelegate {
 
     private func sendKeyboardBacklightNotification(value: Float) {
         guard !SystemHUDPlacement.suppressesAppHUD(isLocked: LockScreenManager.isLockedSnapshot) else { return }
+
+        SystemOSDManager.suppressNativeOSDNow()
 
         // Send to Circular HUD if enabled
         if Defaults[.enableCircularHUD] && Defaults[.enableKeyboardBacklightHUD] {
